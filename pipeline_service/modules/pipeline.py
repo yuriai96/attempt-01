@@ -80,7 +80,7 @@ class GenerationPipeline:
     async def warmup_generator(self) -> None:
         """Function for warming up the generator"""
 
-        temp_image = Image.open("../assets/01.jpg")
+        temp_image = Image.open("../assets/01.jpg").to("RGB")
         buffer = io.BytesIO()
         temp_image.save(buffer, format="PNG")
         temp_imge_bytes = buffer.getvalue()
