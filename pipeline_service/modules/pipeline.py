@@ -148,20 +148,20 @@ class GenerationPipeline:
         image_edited_1 = self.qwen_edit.edit_image(
             prompt_image=org_img_edit,
             seed=request.seed,
-            prompt="Left side view. The object stays fixed in space; only the camera rotates 90 degrees to the left. Preserve the original scale, proportions, lighting direction, shadows, camera distance, and color palette. Deep depth of field, everything in sharp focus.",
+            prompt="Show this object in left three-quarters view and make sure it is fully visible. Turn background neutral solid color contrasting with an object. Delete background details. Delete watermarks. Keep object colors. Sharpen image details",
         )
         
         image_edited_2 = self.qwen_edit.edit_image(
             prompt_image=org_img_edit,
             seed=request.seed,
-            prompt="Right side view. The object stays fixed in space; only the camera rotates 90 degrees to the left. Preserve the original scale, proportions, lighting direction, shadows, camera distance, and color palette. Deep depth of field, everything in sharp focus.",
+            prompt="Show this object in right three-quarters view and make sure it is fully visible. Turn background neutral solid color contrasting with an object. Delete background details. Delete watermarks. Keep object colors. Sharpen image details",
         )
         
         
         image_edited_3 = self.qwen_edit.edit_image(
             prompt_image=org_img_edit,
             seed=request.seed,
-            prompt="Back view. The object stays fixed in space; only the camera rotates 90 degrees to the left. Preserve the original scale, proportions, lighting direction, shadows, camera distance, and color palette. Deep depth of field, everything in sharp focus.",
+            prompt="Show this object in back view and make sure it is fully visible. Turn background neutral solid color contrasting with an object. Delete background details. Delete watermarks. Keep object colors. Sharpen image details",
         )
         
 
