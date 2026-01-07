@@ -183,7 +183,6 @@ class GenerationPipeline:
         trellis_result_1 = self.trellis.generate(
             TrellisRequest(
                 images=[
-                    original_image_edit_without_background,
                     image_without_background_1,
                     image_without_background_2,
                     image_without_background_3,
@@ -204,7 +203,8 @@ class GenerationPipeline:
             trellis_result_2 = self.trellis.generate(
                 TrellisRequest(
                     images=[
-                        original_image_without_background,
+                        original_image_edit_without_background,
+                        image_without_background_1,
                     ],
                     seed=request.seed,
                     params=trellis_params,
@@ -231,42 +231,6 @@ class GenerationPipeline:
                     trellis_result = trellis_result_2
                     best_render = render_2
                     idx_best_result = 2
-
-        if time.time() - t1 + self.estimate_time_gen3d + self.estimate_time_valid < 32:
-            print(f"Generate result 3")
-            s0 = time.time()
-            trellis_result_3 = self.trellis.generate(
-                TrellisRequest(
-                    images=[
-                        original_image_edit_without_background,
-                        image_without_background_3,
-                    ],
-                    seed=request.seed,
-                    params=trellis_params,
-                )
-            )
-            
-            render_3 = render_image_combine(trellis_result_3.ply_file)
-            # render_3.save("render_3.png")
-            self.estimate_time_gen3d = max(self.estimate_time_gen3d, time.time() - s0)
-
-            s1 = time.time()
-            winner, avg_penalty_left, avg_penalty_right, issues = await judge_3d_duel(render_3, best_render, image)
-            self.estimate_time_valid = max(self.estimate_time_valid, time.time() - s1)
-            print(f"Winner: {winner}, Left penalty: {avg_penalty_left}, Right penalty: {avg_penalty_right}, Issues: {issues}")
-            if avg_penalty_left < avg_penalty_right:
-                trellis_result = trellis_result_3
-                best_render = render_3
-                idx_best_result = 3
-            elif avg_penalty_left > avg_penalty_right:
-                pass
-            else:
-                if len(trellis_result_3.ply_file) < len(trellis_result_2.ply_file):
-                    trellis_result = trellis_result_3
-                    best_render = render_3
-                    idx_best_result = 3
-                else:
-                    pass
 
         print(f"Best result index: {idx_best_result}")
 
