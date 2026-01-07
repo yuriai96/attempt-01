@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     qwen_edit_prompt_path: Path = Field(default=config_dir.joinpath("qwen_edit_prompt.json"), env="QWEN_EDIT_PROMPT_PATH")
 
     # Background removal settings
-    rmbg_model: Literal["birefnet", "ben2"] = Field(default="ben2", env="RMBG_MODEL")
+    rmbg_model: Literal["birefnet", "ben2"] = Field(default="birefnet", env="RMBG_MODEL")
     birefnet_model_id: str = Field(default="ZhengPeng7/BiRefNet", env="BIREFNET_MODEL_ID")
     output_image_size: tuple[int, int] = Field(default=(518, 518), env="OUTPUT_IMAGE_SIZE")  # (height, width)
     padding_percentage: float = Field(default=0.2, env="PADDING_PERCENTAGE")
