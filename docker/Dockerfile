@@ -80,6 +80,7 @@ RUN rm -rf /var/cache/* /tmp/* /var/tmp/* ~/.cache /var/lib/apt/lists/*
 COPY pipeline_service /workspace
 
 EXPOSE 10006
+COPY assets/01.jpg /assets/01.jpg
 COPY start.sh /workspace/start.sh
 RUN chmod +x /workspace/start.sh
 WORKDIR /workspace
