@@ -256,14 +256,7 @@ class GenerationPipeline:
         
         image_without_background_1 = self.rmbg.remove_background(image_edited_1.copy())
         
-        image_edited_2 = self.qwen_edit.edit_image(
-            prompt_image=org_img_edit,
-            seed=request.seed,
-            prompt="Right three-quarters view. The object remains fixed in space. Preserve the original scale, proportions, camera distance, and color palette. Keep the original background unchanged. Lighting remains consistent with the scene but does not directly illuminate the object; no new light sources or directional lighting added. Maintain existing shadows as-is",
-        )
-        self._save_debug_image(image_edited_2, debug_index, task_id, "edited_right")
-        debug_index += 1
-        image_without_background_2 = self.rmbg.remove_background(image_edited_2.copy())
+        
 
         trellis_result: Optional[TrellisResult] = None
         idx_best_result = 0
@@ -276,9 +269,8 @@ class GenerationPipeline:
         trellis_result_1 = self.trellis.generate(
             TrellisRequest(
                 images=[
-                    original_image_edit_without_background,
+                    original_image_without_background,
                     image_without_background_1,
-                    image_without_background_2,
                 ],
                 seed=request.seed,
                 params=trellis_params,
@@ -298,10 +290,20 @@ class GenerationPipeline:
         if time.time() - t1 + self.estimate_time_gen3d + self.estimate_time_valid < 32:
             s0 = time.time()
             
+            image_edited_2 = self.qwen_edit.edit_image(
+                prompt_image=org_img_edit,
+                seed=request.seed,
+                prompt="Right three-quarters view. The object remains fixed in space. Preserve the original scale, proportions, camera distance, and color palette. Keep the original background unchanged. Lighting remains consistent with the scene but does not directly illuminate the object; no new light sources or directional lighting added. Maintain existing shadows as-is",
+            )
+            self._save_debug_image(image_edited_2, debug_index, task_id, "edited_right")
+            debug_index += 1
+            image_without_background_2 = self.rmbg.remove_background(image_edited_2.copy())
+            
             trellis_result_2 = self.trellis.generate_single(
                 TrellisRequest(
                     images=[
                         original_image_without_background,
+                        image_without_background_2,
                     ],
                     seed=request.seed,
                     params=trellis_params,
@@ -342,7 +344,7 @@ class GenerationPipeline:
                 TrellisRequest(
                     images=[
                         original_image_edit_without_background,
-                        image_without_background_1,
+                        original_image_without_background,
                     ],
                     seed=request.seed,
                     params=trellis_params,
