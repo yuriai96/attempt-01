@@ -57,7 +57,7 @@ class TrellisService:
 
         start = time.time()
         try:
-            outputs = self.pipeline.run_multi_image(
+            outputs, num_voxel = self.pipeline.run_multi_image_with_voxel_count(
                 images_rgb,
                 seed=trellis_request.seed,
                 sparse_structure_sampler_params={
@@ -71,6 +71,8 @@ class TrellisService:
                 },
                 preprocess_image=False,
                 formats=["gaussian"],
+                mode="multidiffusion",
+                voxel_threshold = 35000,
                 num_oversamples=params.num_oversamples,
             )
 

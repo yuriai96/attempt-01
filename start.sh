@@ -20,7 +20,7 @@ log "Starting vLLM on port 8001"
   --gpu-memory-utilization 0.4 \
   --port 8001 &
 VLLM_PID=$!
-log "Waiting for vLLM to be ready on port 8001..."
+log "Waiting for vLLM to be ready on port 8001 (PID=$VLLM_PID)"
 until (echo > /dev/tcp/127.0.0.1/8001) >/dev/null 2>&1; do
   sleep 1
 done

@@ -444,3 +444,79 @@ class TrellisImageTo3DPipeline(Pipeline):
         ):
             slat = self.sample_slat(cond, coords, slat_sampler_params)
         return self.decode_slat(slat, formats)
+
+    @torch.no_grad()
+    def run_multi_image_with_voxel_count(
+        self,
+        images: List[Image.Image],
+        num_samples: int = 1,
+        seed: int = 42,
+        sparse_structure_sampler_params: dict = {},
+        slat_sampler_params: dict = {},
+        formats: List[str] = ["gaussian"],
+        preprocess_image: bool = True,
+        mode: Literal["stochastic", "multidiffusion"] = "stochastic",
+        num_oversamples: int = 1,
+        voxel_threshold: int = 25000,
+    ) -> tuple[dict, int]:
+        """
+        Run the pipeline with multiple images as condition and adjust texture steps based on voxel count.
+        
+        If occupied voxels > voxel_threshold, use current slat_steps.
+        Otherwise, increase slat_steps by 50% for better texture quality.
+
+        Args:
+            images (List[Image.Image]): The multi-view images of the assets
+            num_samples (int): The number of samples to generate.
+            sparse_structure_sampler_params (dict): Additional parameters for the sparse structure sampler.
+            slat_sampler_params (dict): Additional parameters for the structured latent sampler.
+            preprocess_image (bool): Whether to preprocess the image.
+            voxel_threshold (int): Threshold for adjusting texture generation steps.
+            
+        Returns:
+            tuple: (outputs dict, number of occupied voxels)
+        """
+        if preprocess_image:
+            images = [self.preprocess_image(image) for image in images]
+        cond = self.get_cond(images)
+        cond["neg_cond"] = cond["neg_cond"][:1]
+        torch.manual_seed(seed)
+        num_oversamples = max(num_samples, num_oversamples)
+        ss_steps = {
+            **self.sparse_structure_sampler_params,
+            **sparse_structure_sampler_params,
+        }.get("steps")
+        with self.inject_sampler_multi_image(
+            "sparse_structure_sampler", len(images), ss_steps, mode=mode
+        ):
+            coords = self.sample_sparse_structure(
+                cond, num_oversamples, sparse_structure_sampler_params
+            )
+            coords = (
+                coords
+                if num_oversamples <= num_samples
+                else self.select_coords(coords, num_samples)
+            )
+        
+        # Count occupied voxels
+        num_voxels = len(coords)
+        
+        # Adjust slat_steps based on voxel count
+        base_slat_steps = {**self.slat_sampler_params, **slat_sampler_params}.get("steps")
+        if num_voxels > voxel_threshold:
+            adjusted_slat_steps = base_slat_steps
+            print(f"Voxel count {num_voxels} > {voxel_threshold}: Using standard texture steps ({adjusted_slat_steps})")
+        else:
+            adjusted_slat_steps = int(base_slat_steps * 1.5)
+            print(f"Voxel count {num_voxels} <= {voxel_threshold}: Using increased texture steps ({adjusted_slat_steps})")
+        
+        # Update slat_sampler_params with adjusted steps
+        adjusted_slat_sampler_params = {**slat_sampler_params, "steps": adjusted_slat_steps}
+        
+        with self.inject_sampler_multi_image(
+            "slat_sampler", len(images), adjusted_slat_steps, mode=mode
+        ):
+            slat = self.sample_slat(cond, coords, adjusted_slat_sampler_params)
+        
+        outputs = self.decode_slat(slat, formats)
+        return outputs, num_voxels

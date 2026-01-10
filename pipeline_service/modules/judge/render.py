@@ -7,6 +7,23 @@ import io
 import numpy as np
 import requests 
 
+
+def rgba_to_rgb_white(image: Image.Image) -> Image.Image:
+    """
+    Convert RGBA image to RGB with white background.
+    If image is already RGB, return as-is.
+    """
+    if image.mode == "RGBA":
+        # Create white background
+        white_bg = Image.new("RGB", image.size, (255, 255, 255))
+        # Paste image using alpha channel as mask
+        white_bg.paste(image, mask=image.split()[3])
+        return white_bg
+    elif image.mode != "RGB":
+        return image.convert("RGB")
+    return image
+
+
 def load_ply_to_buffer(ply_path: str) -> io.BytesIO:
     buffer = io.BytesIO()
     with open(ply_path, "rb") as f:
@@ -61,13 +78,13 @@ def combine_images4(
     # Create canvas with background color
     combined_image = Image.new("RGB", (row_width, column_height), color=background_color)
     
-    # Resize images if needed
+    # Resize images if needed and convert to RGB with white background
     resized_images = []
     for img in images:
         if img.size != (img_width, img_height):
             img = img.resize((img_width, img_height), Image.Resampling.LANCZOS)
-        if img.mode != "RGB":
-            img = img.convert("RGB")
+        # Convert RGBA to RGB with white background
+        img = rgba_to_rgb_white(img)
         resized_images.append(img)
     
     # Paste images into grid positions

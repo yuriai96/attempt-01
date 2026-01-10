@@ -139,6 +139,9 @@ class QwenImageEditPlusModule:
             return self._set_text_prompting(path)
 
     def _prepare_input_image(self, image: Image.Image, megapixels: float = 1.0) -> Image.Image:
+        # Ensure RGB mode (Qwen Edit requires 3 channels)
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
         total = int(megapixels * 1024 * 1024)
         scale_by = math.sqrt(total / (image.width * image.height))
         width = round(image.width * scale_by)

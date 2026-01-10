@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 10006
 
+    # Debug mode
+    debug: bool = Field(default=True, env="DEBUG")
+
     # GPU settings
     qwen_gpu: int = Field(default=0, env="QWEN_GPU")
     trellis_gpu: int = Field(default=0, env="TRELLIS_GPU")
@@ -45,10 +48,10 @@ class Settings(BaseSettings):
     true_cfg_scale: float = Field(default=1.0, env="TRUE_CFG_SCALE")
     qwen_edit_prompt_path: Path = Field(default=config_dir.joinpath("qwen_edit_prompt.json"), env="QWEN_EDIT_PROMPT_PATH")
 
-    # Background removal settings
-    rmbg_model: Literal["birefnet", "ben2"] = Field(default="ben2", env="RMBG_MODEL")
-    birefnet_model_id: str = Field(default="ZhengPeng7/BiRefNet", env="BIREFNET_MODEL_ID")
-    output_image_size: tuple[int, int] = Field(default=(518, 518), env="OUTPUT_IMAGE_SIZE")  # (height, width)
+     # Backgorund removal settings
+    background_removal_model_id: str = Field(default="PramaLLC/BEN2", env="BACKGROUND_REMOVAL_MODEL_ID")
+    input_image_size: tuple[int, int] = Field(default=(1024, 1024), env="INPUT_IMAGE_SIZE") # (height, width)
+    output_image_size: tuple[int, int] = Field(default=(518, 518), env="OUTPUT_IMAGE_SIZE") # (height, width)
     padding_percentage: float = Field(default=0.2, env="PADDING_PERCENTAGE")
     limit_padding: bool = Field(default=True, env="LIMIT_PADDING")
     
