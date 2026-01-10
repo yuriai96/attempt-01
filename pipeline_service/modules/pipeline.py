@@ -171,21 +171,23 @@ class GenerationPipeline:
         best_ssim = -1
         best_psnr = -1
         num_attempt = 0
-        max_attempt = 3
+        max_attempt = 10
         list_prompt = ["Turn the background to a uniform solid color. Keep the main subject unchanged: same scale, orientation, camera perspective, lighting direction, shadows, and original color palette. Only the background should be modified.", "Turn the background to a uniform solid color", "Make the background a solid color. Keep camera pose, object color and object size"]
         best_org_img_edit = image
         best_original_image_edit_without_background = original_image_without_background
         
         start_time = time.time()
-        current_seed = request.seed
         
-        while time.time() - start_time < 5 and num_attempt <= max_attempt:
+        
+        while time.time() - start_time < 10 and num_attempt <= max_attempt:
             
             # Generate new org_img_edit variant
+            idx = min(num_attempt, len(list_prompt) - 1)
+            current_seed = request.seed + num_attempt * 7
             tmp_org_img_edit = self.qwen_edit.edit_image(
                 prompt_image=image.copy(),
                 seed=current_seed,
-                prompt=list_prompt[num_attempt],
+                prompt=list_prompt[idx],
             )
             tmp_original_image_edit_without_background = self.rmbg.remove_background(tmp_org_img_edit)
             
@@ -294,87 +296,6 @@ class GenerationPipeline:
         trellis_result = trellis_result_1
         best_render = render_1
         idx_best_result = 1
-        
-        if time.time() - t1 + self.estimate_time_gen3d + self.estimate_time_valid < 32:
-            s0 = time.time()
-            
-            trellis_result_2 = self.trellis.generate_single(
-                TrellisRequest(
-                    images=[
-                        original_image_without_background,
-                    ],
-                    seed=request.seed,
-                    params=trellis_params,
-                )
-            )
-            render_2 = render_image_combine(trellis_result_2.ply_file)
-            
-            # Debug: Save render_2
-            self._save_debug_image(render_2, debug_index, task_id, "render_2_single_view")
-            debug_index += 1
-            
-            self.estimate_time_gen3d = max(self.estimate_time_gen3d, time.time() - s0)
-           
-            s1 = time.time()
-            # Convert image to RGB with white background for judging
-            winner, avg_penalty_left, avg_penalty_right, issues = await judge_3d_duel(render_1, render_2, tmp_original_image_edit_with_white_bg)
-            self.estimate_time_valid = max(self.estimate_time_valid, time.time() - s1)
-            print(f"Winner: {winner}, Left penalty: {avg_penalty_left}, Right penalty: {avg_penalty_right}, Issues: {issues}")
-            if avg_penalty_left < avg_penalty_right:
-                pass
-            elif avg_penalty_left > avg_penalty_right:
-                trellis_result = trellis_result_2
-                best_render = render_2
-                idx_best_result = 2
-            else:
-                if len(trellis_result_1.ply_file) < len(trellis_result_2.ply_file):
-                    pass
-                else:
-                    trellis_result = trellis_result_2
-                    best_render = render_2
-                    idx_best_result = 2
-
-        if time.time() - t1 + self.estimate_time_gen3d + self.estimate_time_valid < 32:
-            print(f"Generate result 3")
-            
-            s0 = time.time()
-            trellis_result_3 = self.trellis.generate(
-                TrellisRequest(
-                    images=[
-                        original_image_edit_without_background,
-                        image_without_background_1,
-                    ],
-                    seed=request.seed,
-                    params=trellis_params,
-                )
-            )
-            
-            render_3 = render_image_combine(trellis_result_3.ply_file)
-            
-            # Debug: Save render_3
-            self._save_debug_image(render_3, debug_index, task_id, "render_3_two_view")
-            debug_index += 1
-            
-            self.estimate_time_gen3d = max(self.estimate_time_gen3d, time.time() - s0)
-
-            s1 = time.time()
-            # Convert image to RGB with white background for judging
-            winner, avg_penalty_left, avg_penalty_right, issues = await judge_3d_duel(render_3, best_render, tmp_original_image_edit_with_white_bg)
-            self.estimate_time_valid = max(self.estimate_time_valid, time.time() - s1)
-            print(f"Winner: {winner}, Left penalty: {avg_penalty_left}, Right penalty: {avg_penalty_right}, Issues: {issues}")
-            if avg_penalty_left < avg_penalty_right:
-                trellis_result = trellis_result_3
-                best_render = render_3
-                idx_best_result = 3
-            elif avg_penalty_left > avg_penalty_right:
-                pass
-            else:
-                if len(trellis_result_3.ply_file) < len(trellis_result_2.ply_file):
-                    trellis_result = trellis_result_3
-                    best_render = render_3
-                    idx_best_result = 3
-                else:
-                    pass
 
         print(f"Best result index: {idx_best_result}")
         
