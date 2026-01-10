@@ -172,7 +172,7 @@ class GenerationPipeline:
         best_psnr = -1
         num_attempt = 0
         max_attempt = 3
-        list_prompt = ["Turn the background to a uniform solid color. Keep the main subject unchanged: same scale, orientation, camera perspective, lighting direction, shadows, and original color palette. Only the background should be modified.", "Turn the background to a uniform solid color", "Make the background a solid color. Keep camera pose, object color and object size"]
+        list_prompt = ["Turn the background to a uniform solid color. Keep the main subject unchanged: same scale, orientation, camera perspective, lighting direction, shadows, and original color palette. Only the background should be modified.", "Show this object in left three-quarters view and make sure it is fully visible. Turn background neutral solid color contrasting with an object. Delete background details. Delete watermarks. Keep object colors. Sharpen image details", "Make the background a solid color. Keep camera pose, object color and object size"]
         best_org_img_edit = image
         best_original_image_edit_without_background = original_image_without_background
         
@@ -249,7 +249,7 @@ class GenerationPipeline:
         image_edited_1 = self.qwen_edit.edit_image(
             prompt_image=org_img_edit,
             seed=request.seed,
-            prompt="Left three-quarters view. The object remains fixed in space. Preserve the original scale, proportions, camera distance, and color palette. Keep the original background unchanged. Lighting remains consistent with the scene but does not directly illuminate the object; no new light sources or directional lighting added. Maintain existing shadows as-is",
+            prompt="Show this object in right three-quarters view and make sure it is fully visible. Turn background neutral solid color contrasting with an object. Delete background details. Delete watermarks. Keep object colors. Sharpen image details",
         )
         self._save_debug_image(image_edited_1, debug_index, task_id, "edited_left")
         debug_index += 1
@@ -259,7 +259,7 @@ class GenerationPipeline:
         image_edited_2 = self.qwen_edit.edit_image(
             prompt_image=org_img_edit,
             seed=request.seed,
-            prompt="Right three-quarters view. The object remains fixed in space. Preserve the original scale, proportions, camera distance, and color palette. Keep the original background unchanged. Lighting remains consistent with the scene but does not directly illuminate the object; no new light sources or directional lighting added. Maintain existing shadows as-is",
+            prompt="Show this object in back view and make sure it is fully visible. Turn background neutral solid color contrasting with an object. Delete background details. Delete watermarks. Keep object colors. Sharpen image details",
         )
         self._save_debug_image(image_edited_2, debug_index, task_id, "edited_right")
         debug_index += 1
