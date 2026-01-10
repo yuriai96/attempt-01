@@ -17,7 +17,7 @@ log "render-service started (PID=$RENDER_PID)"
 # -------- Start vLLM (background) --------
 log "Starting vLLM on port 8001"
 /opt/vllm-env/bin/vllm serve zai-org/GLM-4.1V-9B-Thinking \
-  --gpu-memory-utilization 0.4 \
+  --gpu-memory-utilization 0.3 \
   --port 8001 &
 VLLM_PID=$!
 log "Waiting for vLLM to be ready on port 8001 (PID=$VLLM_PID)"
