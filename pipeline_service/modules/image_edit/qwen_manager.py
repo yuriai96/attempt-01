@@ -69,9 +69,12 @@ class QwenManager:
         self.pipe = self._get_model_pipe(transformer, scheduler)
 
         self.pipe.load_lora_weights(
-            "lightx2v/Qwen-Image-Lightning",
+            self.settings.qwen_edit_lora_repo,
             weight_name=self.settings.qwen_edit_base_model_path
         )
+
+        self.pipe.transformer.set_attention_backend("_flash_3_hub")
+
         # Move model pipe to device
         self.pipe = self.pipe.to(self.device)
 

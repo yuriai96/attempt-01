@@ -1,22 +1,22 @@
 from __future__ import annotations
 
 import time
+from typing import Iterable
 import numpy as np
 import torch
+from abc import ABC, abstractmethod
 from PIL import Image
 
+from transformers import AutoModelForImageSegmentation
 from torchvision import transforms
 from torchvision.transforms.functional import to_pil_image, resized_crop
-from config import Settings
+
+from config.settings import BackgroundRemovalConfig
 from logger_config import logger
 
-from ben2 import BEN_Base
 
-
-class BackgroundRemovalService:
-    """Uses BEN2 model for background removal (matches xalmo exactly)."""
-    
-    def __init__(self, settings: Settings):
+class BackgroundRemovalService(ABC):
+    def __init__(self, settings: BackgroundRemovalConfig):
         """
         Initialize the BackgroundRemovalService.
         """
@@ -28,36 +28,26 @@ class BackgroundRemovalService:
         self.output_size = self.settings.output_image_size
 
         # Set device
-        self.device = f"cuda:{settings.qwen_gpu}" if torch.cuda.is_available() else "cpu"
+        self.device = f"cuda:{settings.gpu}" if torch.cuda.is_available() else "cpu"
 
-        # Set BEN model
-        self.model: BEN_Base | None = None
-
-        # Set transform
-        self.transforms = transforms.Compose(
-            [
-                transforms.Resize(self.settings.input_image_size), 
-                transforms.ToTensor(),
-                transforms.ConvertImageDtype(torch.float32),
-            ]
-        )
+        self.model, self.transforms = self._initialize_model_and_transforms()
 
         # Set normalize
         self.normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-       
+    
     async def startup(self) -> None:
         """
         Startup the BackgroundRemovalService.
         """
-        logger.info(f"Loading {self.settings.background_removal_model_id} model...")
+        logger.info(f"Loading {self.settings.model_id} model...")
 
         # Load model
         try:
-            self.model = BEN_Base.from_pretrained(self.settings.background_removal_model_id).to(self.device).eval()
-            logger.success(f"{self.settings.background_removal_model_id} model loaded.")
+            self.model = self._load_model()
+            logger.success(f"{self.settings.model_id} model loaded.")
         except Exception as e:
-            logger.error(f"Error loading {self.settings.background_removal_model_id} model: {e}")
-            raise RuntimeError(f"Error loading {self.settings.background_removal_model_id} model: {e}")
+            logger.error(f"Error loading {self.settings.model_id} model: {e}")
+            raise RuntimeError(f"Error loading {self.settings.model_id} model: {e}")
 
     async def shutdown(self) -> None:
         """
@@ -71,67 +61,66 @@ class BackgroundRemovalService:
         Ensure the BackgroundRemovalService is ready.
         """
         if self.model is None:
-            raise RuntimeError(f"{self.settings.background_removal_model_id} model not initialized.")
+            raise RuntimeError(f"{self.settings.model_id} model not initialized.")
 
-    def remove_background(self, image: Image.Image) -> Image.Image:
+    def remove_background(self, image: Image.Image | Iterable[Image.Image], threshold = None) -> Image.Image | Iterable[Image.Image]:
         """
         Remove the background from the image.
         """
+        # try:
         t1 = time.time()
-        # Check if the image has alpha channel
+
+        images = image if isinstance(image, Iterable) else [image]
+
+        outputs = []
         has_alpha = False
-        
-        if image.mode == "RGBA":
-            # Get alpha channel
-            alpha = np.array(image)[:, :, 3]
-            if not np.all(alpha==255):
-                has_alpha=True
-        
-        if has_alpha:
-            # If the image has alpha channel, return the image
-            output = image
-            image_without_background = image  # Fix: define this variable
+
+        for img in images:
+            if img.mode == "RGBA":
+                # Get alpha channel
+                alpha = np.array(img)[:, :, 3]
+                if not np.all(alpha==255):
+                    has_alpha=True
             
-        else:
-            # PIL.Image (H, W, C) C=3
-            rgb_image = image.convert('RGB').resize(self.settings.input_image_size)
-            
-            # Use BEN2 inference
-            foreground_tensor = self._remove_background(rgb_image)
-            output = self._crop_and_center(foreground_tensor)
+            if has_alpha:
+                # If the image has alpha channel, return the image
+                output = img
+                
+            else:
+                # PIL.Image (H, W, C) C=3
+                # Tensor (H, W, C) -> (C, H',W')
+                # rgb_tensor = self.transforms(rgb_image).to(self.device)
+                if threshold is None:
+                    tensor_rgb, mask = self._remove_background(img)
+                    output = self._crop_and_center(tensor_rgb, mask)
+                else:
+                    tensor_rgb, mask = self._remove_background(img, threshold)
+                    output = self._crop_and_center(tensor_rgb, mask, threshold)
 
-            output = image_without_background = to_pil_image(output[:3])
+            outputs.append(output)
 
-        removal_time = time.time() - t1
-        logger.success(f"Background remove - Time: {removal_time:.2f}s - OutputSize: {output.size} - InputSize: {image.size}")
+        images_without_background = tuple(to_pil_image(o[:3]) for o in outputs) if isinstance(image, Iterable) else to_pil_image(outputs[0][:3])
 
-        return image_without_background
+        
 
-    def _remove_background(self, image: Image.Image) -> torch.Tensor:
+        return images_without_background
+
+    def _crop_and_center(self, tensor_rgb: torch.Tensor, mask: torch.Tensor, threshold = 0.8) -> torch.Tensor:
         """
         Remove the background from the image.
         """
-        with torch.no_grad():
-            foreground = self.model.inference(image.copy())
-        return self.transforms(foreground)
 
-    def _crop_and_center(self, foreground_tensor: torch.Tensor) -> torch.Tensor:
-        """
-        Crop and center the foreground object (matches xalmo exactly).
-        """
-        tensor_rgb = foreground_tensor[:3]
-        mask = foreground_tensor[-1]
+        # Normalize tensor value for background removal model, reshape for model batch processing (C=3, H, W) -> (1, C=3, H, W)
 
         # Get bounding box indices
-        bbox_indices = torch.argwhere(mask > 0.8)
-        logger.info(f"BBOX len: {len(bbox_indices)}")
+        bbox_indices = torch.argwhere(mask > threshold)
         if len(bbox_indices) == 0:
-            crop_args = dict(top=0, left=0, height=mask.shape[1], width=mask.shape[0])
+            crop_args = dict(top = 0, left = 0, height = mask.shape[1], width = mask.shape[0])
         else:
             h_min, h_max = torch.aminmax(bbox_indices[:, 1])
             w_min, w_max = torch.aminmax(bbox_indices[:, 0])
             width, height = w_max - w_min, h_max - h_min
-            center = (h_max + h_min) / 2, (w_max + w_min) / 2
+            center =  (h_max + h_min) / 2, (w_max + w_min) / 2
             size = max(width, height)
             padded_size_factor = 1 + self.padding_percentage
             size = int(size * padded_size_factor)
@@ -146,17 +135,37 @@ class BackgroundRemovalService:
                 left = max(0, left)
                 bottom = min(mask.shape[1], bottom)
                 right = min(mask.shape[0], right)
-
+            
             crop_args = dict(
                 top=top,
                 left=left,
                 height=bottom - top,
                 width=right - left
             )
+        
 
-        logger.info(f"CROP: {crop_args}")
         mask = mask.unsqueeze(0)
         # Concat mask with image and blacken the background: (C=3, H, W) | (1, H, W) -> (C=4, H, W)
         tensor_rgba = torch.cat([tensor_rgb*mask, mask], dim=-3)
-        output = resized_crop(tensor_rgba, **crop_args, size=self.output_size, antialias=False)
+        output = resized_crop(tensor_rgba, **crop_args, size = self.output_size, antialias=False)
         return output
+
+    @abstractmethod
+    def _initialize_model_and_transforms(self) -> tuple[AutoModelForImageSegmentation | AutoModelForImageSegmentation, transforms.Compose]:
+        """
+        Initialize model and transforms.
+        """
+        pass
+
+    @abstractmethod
+    def _load_model(self) -> AutoModelForImageSegmentation | AutoModelForImageSegmentation:
+        """
+        Load the background removal model.
+        """
+        pass
+
+    def _remove_background(self, image: Image, threshold: float = 0.8):
+        """
+        Remove the background from the image.
+        """
+        pass

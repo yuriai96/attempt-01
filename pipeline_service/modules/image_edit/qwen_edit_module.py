@@ -1,7 +1,8 @@
 import math
 from os import PathLike
 from pathlib import Path
-from typing import Optional, List, Union
+from tkinter import image_types
+from typing import Optional, Any, Literal
 from safetensors import safe_open
 import torch
 from pydantic import BaseModel, Field
@@ -17,106 +18,43 @@ from schemas.custom_types import BFloatTensor, IntTensor
 load_dotenv()
 
 from logger_config import logger
+import hashlib
 
+from diffusers.models import QwenImageTransformer2DModel
+from modules.image_edit.qwen_manager import QwenManager
 from config import Settings
 
+def validate_image(image: Image.Image, result: Image.Image, view: Optional[str] = None):
+    #TODO: check if need to re-run generation
+    return result
 
 class EmbeddedPrompting(BaseModel):
     prompt_embeds: BFloatTensor
     prompt_embeds_mask: Optional[IntTensor] = None
 
-
 class TextPrompting(BaseModel):
     prompt: str = Field(alias="positive")
-    negative_prompt: Optional[str] = Field(default=" ", alias="negative")
+    negative_prompt: Optional[str] = Field(default=None, alias="negative")
 
-
-class QwenImageEditPlusModule:
-    """Qwen module for image editing operations using QwenImageEditPlusPipeline (2511)."""
+class QwenEditModule(QwenManager):
+    """Qwen module for image editing operations."""
 
     def __init__(self, settings: Settings):
-        self.settings = settings
-        self.pipe: Optional[QwenImageEditPlusPipeline] = None
-        self.device = f"cuda:{settings.qwen_gpu}" if torch.cuda.is_available() else "cpu"
-        self.dtype = self._resolve_dtype(settings.dtype)
-        self.gpu_index = settings.qwen_gpu
-
+        super().__init__(settings)
         self._empty_image = Image.new('RGB', (1024, 1024))
+
+        self.base_model_path = settings.qwen_edit_base_model_path
         self.edit_model_path = settings.qwen_edit_model_path
-        self.edit_model_lora_path = settings.qwen_edit_lora_path
-        self.edit_model_lora_ckpt = settings.qwen_edit_lora_ckpt
         self.prompt_path = settings.qwen_edit_prompt_path
         self.prompting = self._set_prompting()
 
         self.pipe_config = {
             "num_inference_steps": settings.num_inference_steps,
             "true_cfg_scale": settings.true_cfg_scale,
-            "guidance_scale": 1.0,
-            "num_images_per_prompt": 1,
+            "height": settings.qwen_edit_height,
+            "width": settings.qwen_edit_width,
+
         }
-
-    def _resolve_dtype(self, dtype: str) -> torch.dtype:
-        mapping = {
-            "bf16": torch.bfloat16,
-            "bfloat16": torch.bfloat16,
-            "fp16": torch.float16,
-            "float16": torch.float16,
-            "fp32": torch.float32,
-            "float32": torch.float32,
-        }
-        resolved = mapping.get(dtype.lower(), torch.bfloat16)
-        if not torch.cuda.is_available() and resolved in {torch.float16, torch.bfloat16}:
-            return torch.float32
-        return resolved
-
-    async def startup(self) -> None:
-        """Initialize the Qwen pipeline."""
-        logger.info("Initializing QwenImageEditPlusModule...")
-        await self._load_pipeline()
-        logger.success("QwenImageEditPlusModule ready.")
-
-    async def shutdown(self) -> None:
-        """Shutdown the pipeline and free resources."""
-        if self.pipe:
-            try:
-                self.pipe.to("cpu")
-            except Exception:
-                pass
-        self.pipe = None
-        logger.info("QwenImageEditPlusModule closed.")
-
-    def is_ready(self) -> bool:
-        """Check if pipeline is loaded and ready."""
-        return self.pipe is not None
-
-    async def _load_pipeline(self) -> None:
-        """Load the QwenImageEditPlusPipeline."""
-        if torch.cuda.is_available():
-            try:
-                torch.cuda.set_device(self.gpu_index)
-            except Exception as err:
-                logger.warning(f"Failed to set CUDA device ({self.gpu_index}): {err}")
-
-        t1 = time.time()
-
-        # Load pipeline directly from Qwen/Qwen-Image-Edit-2511
-        self.pipe = QwenImageEditPlusPipeline.from_pretrained(
-            self.edit_model_path,
-            torch_dtype=self.dtype
-        )
-
-        if self.edit_model_lora_path and self.edit_model_lora_ckpt:
-            self.pipe.load_lora_weights(
-                self.edit_model_lora_path,
-                weight_name=self.edit_model_lora_ckpt
-            )
-            self.pipe.fuse_lora()
-            
-        self.pipe.to(self.device)
-        self.pipe.set_progress_bar_config(disable=None)
-
-        load_time = time.time() - t1
-        logger.success(f"Qwen pipeline ready (loading: {load_time:.2f}s). Loaded on {self.device} with dtype={self.dtype}.")
 
     def _set_text_prompting(self, path: Optional[PathLike] = None) -> TextPrompting:
         path = path or self.prompt_path
@@ -124,13 +62,14 @@ class QwenImageEditPlusModule:
             edit_prompt = TextPrompting.model_validate_json(json.dumps(json.load(f)))
             return edit_prompt
 
+
     def _set_embedded_prompting(self, path: Optional[PathLike] = None) -> EmbeddedPrompting:
         path = path or self.prompt_path
-        with safe_open(path, framework="pt", device=self.device) as f:
+        with safe_open(path,framework="pt", device=self.device)as f:
             tensors = {key: f.get_tensor(key) for key in f.keys()}
             embedding = EmbeddedPrompting(**tensors)
         return embedding
-
+    
     def _set_prompting(self, path: Optional[PathLike] = None) -> TextPrompting | EmbeddedPrompting:
         path = Path(path or self.prompt_path)
         if path.suffix == ".safetensors":
@@ -138,79 +77,83 @@ class QwenImageEditPlusModule:
         else:
             return self._set_text_prompting(path)
 
-    def _prepare_input_image(self, image: Image.Image, megapixels: float = 1.0) -> Image.Image:
-        # Ensure RGB mode (Qwen Edit requires 3 channels)
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
+    def _get_model_transformer(self):
+        """Load the Nunchaku Qwen transformer for image editing."""
+        return  QwenImageTransformer2DModel.from_pretrained(
+                self.edit_model_path,
+                subfolder="transformer",
+                torch_dtype=self.dtype
+            )
+
+    def _get_model_pipe(self, transformer, scheduler):
+
+        return QwenImageEditPlusPipeline.from_pretrained(
+                self.edit_model_path,
+                transformer=transformer,
+                scheduler=scheduler,
+                torch_dtype=self.dtype
+            )
+
+    def _get_scheduler_config(self):
+        """Return scheduler configuration for image editing."""
+        return  {
+                "base_image_seq_len": 256,
+                "base_shift": math.log(3),  # We use shift=3 in distillation
+                "invert_sigmas": False,
+                "max_image_seq_len": 8192,
+                "max_shift": math.log(3),  # We use shift=3 in distillation
+                "num_train_timesteps": 1000,
+                "shift": 1.0,
+                "shift_terminal": None,  # set shift_terminal to None
+                "stochastic_sampling": False,
+                "time_shift_type": "exponential",
+                "use_beta_sigmas": False,
+                "use_dynamic_shifting": True,
+                "use_exponential_sigmas": False,
+                "use_karras_sigmas": False,
+            }
+
+    def _prepare_input_image(self, image: Image, megapixels: float = 1.0):
         total = int(megapixels * 1024 * 1024)
+
         scale_by = math.sqrt(total / (image.width * image.height))
         width = round(image.width * scale_by)
         height = round(image.height * scale_by)
+
         return image.resize((width, height), Image.Resampling.LANCZOS)
 
-    def _run_model_pipe(
-        self,
-        image: Union[Image.Image, List[Image.Image]],
-        prompt: str,
-        negative_prompt: str = " ",
-        seed: Optional[int] = None,
-        **kwargs
-    ):
-        """Run the pipeline with the given inputs."""
-        inputs = {
-            "image": image if isinstance(image, list) else [image],
-            "prompt": prompt,
-            "negative_prompt": negative_prompt,
-            **self.pipe_config,
-            **kwargs,
-        }
-
-        if seed is not None:
-            inputs["generator"] = torch.Generator(device=self.device).manual_seed(seed)
-
-        with torch.inference_mode():
-            result = self.pipe(**inputs)
-
+    def _run_model_pipe(self, seed: Optional[int] = None, rmbg_model: Optional[Any] = None, view: Optional[str] = None, **kwargs):
+        if seed:
+            kwargs.update(dict(generator=torch.Generator(device=self.device).manual_seed(seed)))
+        image = kwargs.pop("image", self._empty_image)
+        result = self.pipe(
+                image=image,
+                **self.pipe_config,
+                **kwargs).images[0]
+        if rmbg_model:
+            result = rmbg_model.remove_background(result, threshold=0.5)
+        result = validate_image(image, result, view)
         return result
 
-    def _run_edit_pipe(
-        self,
-        prompt_image: Union[Image.Image, List[Image.Image]],
-        prompt: str,
-        negative_prompt: str = " ",
-        seed: Optional[int] = None,
-        **kwargs
-    ):
-        """Run edit pipeline with prepared images."""
-        if isinstance(prompt_image, list):
-            prepared_images = [self._prepare_input_image(img) for img in prompt_image]
-        else:
-            prepared_images = [self._prepare_input_image(prompt_image)]
-
-        logger.info(f"Prompt image(s) prepared for editing")
-        logger.info(f"Prompt: {prompt}")
-
-        return self._run_model_pipe(
-            image=prepared_images,
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            seed=seed,
-            **kwargs
-        )
-
-    def edit_image(
-        self,
-        prompt_image: Union[Image.Image, List[Image.Image]],
-        seed: int,
-        prompt: Optional[str] = None
-    ) -> Image.Image:
-        """
-        Edit the image using Qwen Edit 2511.
+    def _run_edit_pipe(self,
+                       prompt_image: Image.Image,
+                       seed: Optional[int] = None,
+                       rmbg_model: Optional[Any] = None,
+                       view: Optional[str] = None,
+                       **kwargs):
+        prompt_image = self._prepare_input_image(prompt_image)
+        logger.info(f"Prompt image size: {prompt_image.size}")
+        logger.info(f"Prompt image: {kwargs}")
+        return self._run_model_pipe(seed=seed, rmbg_model=rmbg_model, view=view, image=prompt_image, **kwargs)
+    
+    
+    def edit_image(self, prompt_image: Image.Image, seed: int, prompt: Optional[str] = None, rmbg_model: Optional[Any] = None, view: Optional[str] = None):
+        """ 
+        Edit the image using Qwen Edit.
 
         Args:
-            prompt_image: The prompt image(s) to edit. Can be single image or list of images.
-            seed: Random seed for generation.
-            prompt: Optional prompt override.
+            prompt_image: The prompt image to edit.
+            reference_image: The reference image to edit.
 
         Returns:
             The edited image.
@@ -218,38 +161,27 @@ class QwenImageEditPlusModule:
         if self.pipe is None:
             logger.error("Edit Model is not loaded")
             raise RuntimeError("Edit Model is not loaded")
-
+        
         try:
             start_time = time.time()
 
-            # Get prompting configuration
             prompting = self.prompting.model_dump()
             if prompt:
                 prompting["prompt"] = prompt
-
-            edit_prompt = prompting.get("prompt", "")
-            negative_prompt = prompting.get("negative_prompt", " ")
-
+            
             # Run the edit pipe
-            result = self._run_edit_pipe(
-                prompt_image=prompt_image,
-                prompt=edit_prompt,
-                negative_prompt=negative_prompt,
-                seed=seed
-            )
-
+            result = self._run_edit_pipe(prompt_image=prompt_image,
+                                         **prompting,
+                                         seed=seed,
+                                         rmbg_model=rmbg_model,
+                                         view=view)
+            
             generation_time = time.time() - start_time
-
-            image_edited = result.images[0]
-
-            logger.success(f"Edited image generated in {generation_time:.2f}s, Size: {image_edited.size}, Seed: {seed}")
-
-            return image_edited
-
+            
+            logger.success(f"Edited image generated in {generation_time:.2f}s, Seed: {seed}")
+            
+            return result
+            
         except Exception as e:
             logger.error(f"Error generating image: {e}")
             raise e
-
-
-# Alias for backward compatibility
-QwenEditModule = QwenImageEditPlusModule

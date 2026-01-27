@@ -1,10 +1,24 @@
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Optional, Any
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
 config_dir = Path(__file__).parent
+
+from pydantic import BaseModel
+class BackgroundRemovalConfig(BaseModel):
+    """Background removal configuration"""
+    model_id: str = "PramaLLC/BEN2"
+    birefnet_hf_repo: str = "yuri1996/RMBG-model"
+    birefnet_hf_filename: str = "birefnet.pth"
+    birefnet_use_fp16: bool = True
+    background_removal_mask_threshold: float = 0.5
+    input_image_size: tuple[int, int] = (1024, 1024)
+    output_image_size: tuple[int, int] = (518, 518)
+    padding_percentage: float = 0.2
+    limit_padding: bool = True
+    gpu: int = 0
 
 class Settings(BaseSettings):
     api_title: str = "3D Generation pipeline Service"
@@ -12,9 +26,6 @@ class Settings(BaseSettings):
     # API settings
     host: str = "0.0.0.0"
     port: int = 10006
-
-    # Debug mode
-    debug: bool = Field(default=True, env="DEBUG")
 
     # GPU settings
     qwen_gpu: int = Field(default=0, env="QWEN_GPU")
@@ -35,36 +46,61 @@ class Settings(BaseSettings):
     trellis_sparse_structure_cfg_strength: float = Field(default=5.75, env="TRELLIS_SPARSE_STRUCTURE_CFG_STRENGTH")
     trellis_slat_steps: int = Field(default=20, env="TRELLIS_SLAT_STEPS")
     trellis_slat_cfg_strength: float = Field(default=2.4, env="TRELLIS_SLAT_CFG_STRENGTH")
-    trellis_num_oversamples: int = Field(default=2, env="TRELLIS_NUM_OVERSAMPLES")
+    trellis_num_oversamples: int = Field(default=3, env="TRELLIS_NUM_OVERSAMPLES")
     compression: bool = Field(default=False, env="COMPRESSION")
 
     # Qwen Edit settings
+    qwen_edit_base_model_path: str = Field(default="Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",env="QWEN_EDIT_BASE_MODEL_PATH")
     qwen_edit_model_path: str = Field(default="Qwen/Qwen-Image-Edit-2511",env="QWEN_EDIT_MODEL_PATH")
-    qwen_edit_lora_path: str = Field(default="lightx2v/Qwen-Image-Edit-2511-Lightning", env="QWEN_EDIT_LORA_PATH")
-    qwen_edit_lora_ckpt: str = Field(default="Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors", env="QWEN_EDIT_LORA_CKPT")
+    qwen_edit_lora_repo: str = Field(default="lightx2v/Qwen-Image-Edit-2511-Lightning",env="QWEN_EDIT_LORA_REPO")
     qwen_edit_height: int = Field(default=1024, env="QWEN_EDIT_HEIGHT")
     qwen_edit_width: int = Field(default=1024, env="QWEN_EDIT_WIDTH")
     num_inference_steps: int = Field(default=4, env="NUM_INFERENCE_STEPS")
     true_cfg_scale: float = Field(default=1.0, env="TRUE_CFG_SCALE")
     qwen_edit_prompt_path: Path = Field(default=config_dir.joinpath("qwen_edit_prompt.json"), env="QWEN_EDIT_PROMPT_PATH")
 
-     # Backgorund removal settings
-    background_removal_model_id: str = Field(default="PramaLLC/BEN2", env="BACKGROUND_REMOVAL_MODEL_ID")
+    # Backgorund removal settings
+    background_removal_model_id: str = Field(default="ZhengPeng7/BiRefNet", env="BACKGROUND_REMOVAL_MODEL_ID")
+    birefnet_hf_repo: str = Field(default="yuri1996/RMBG-model", env="BIREFNET_HF_REPO")
+    birefnet_hf_filename: str = Field(default="birefnet.pth", env="BIREFNET_HF_FILENAME")
+    birefnet_use_fp16: bool = Field(default=True, env="BIREFNET_USE_FP16")
+    background_removal_mask_threshold: float = Field(default=0.5, env="BACKGROUND_REMOVAL_MASK_THRESHOLD")
     input_image_size: tuple[int, int] = Field(default=(1024, 1024), env="INPUT_IMAGE_SIZE") # (height, width)
     output_image_size: tuple[int, int] = Field(default=(518, 518), env="OUTPUT_IMAGE_SIZE") # (height, width)
     padding_percentage: float = Field(default=0.2, env="PADDING_PERCENTAGE")
     limit_padding: bool = Field(default=True, env="LIMIT_PADDING")
     
-    # Shadow detection settings (symmetry check)
-    shadow_ssim_threshold: float = Field(default=0.85, env="SHADOW_SSIM_THRESHOLD")
-    shadow_psnr_threshold: float = Field(default=15.0, env="SHADOW_PSNR_THRESHOLD")
+    vllm_host: str = Field(default="localhost", env="VLLM_HOST")
+    vllm_port: int = Field(default=8095, env="VLLM_PORT")
+    vllm_url: str = Field(default="", env="VLLM_URL")
+    vllm_api_key: str = "local"
+    vllm_model_name: str = "zai-org/GLM-4.1V-9B-Thinking"
     
+    # Maximum number of shape candidates to generate in Stage 1
+    max_candidates: int = Field(default=3, env="MAX_CANDIDATES")
+    
+    # Candidate selection based on voxel count ranges
+    # Format: [(max_voxels, num_candidates), ...]
+    # Reads as: "if voxels <= max_voxels, use num_candidates"
+    candidate_ranges: list[tuple[int, int]] = Field(default=[
+        (25000, 3),    # 0-25k voxels → 3 candidates
+        (50000, 2),    # 25k-40k voxels → 2 candidates
+        (10000, 1),    # 40k-50k voxels → 1 candidate
+        # Above 50k → 1 candidate (uses last value)
+    ], env="CANDIDATE_RANGES")
+    
+    # Timeout for generation + judging (seconds)
+    generation_timeout: int = Field(default=25, env="GENERATION_TIMEOUT")
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.vllm_url:
+            self.vllm_url = f"http://{self.vllm_host}:{self.vllm_port}/v1"
 
 
 settings = Settings()
 
 __all__ = ["Settings", "settings"]
-

@@ -5,10 +5,10 @@ torchvision==0.22.1
 torchaudio==2.7.1
 
 # Numpy (version <2 for compatibility with BiRefNet)
-numpy==2.3.4
+numpy<2
 
 # Basic dependencies
-pillow==12.0.0
+pillow==11.3.0
 tqdm==4.67.1
 opencv-python-headless
 easydict==1.13
@@ -31,18 +31,17 @@ kornia==0.8.2
 # FastAPI and web
 fastapi==0.123.7
 uvicorn[standard]
-python-multipart==0.0.20
+python-multipart
 loguru==0.7.3
-aiohttp==3.13.2
 
-# Rendering
+openai
 imageio==2.35.1
 open3d==0.18.0
 meshio==5.3.5
-pyyaml>=6.0
-
+plyfile==1.1
 # Utils3d from GitHub
 git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
 
 # Diffusers from GitHub
-git+https://github.com/huggingface/diffusers
+diffusers==0.36.0
+kernels==0.11.7
