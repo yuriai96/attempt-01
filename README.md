@@ -10,6 +10,9 @@ Automated pipeline for generating 3D models from 2D images.
 
 ## Installation
 
+
+df
+
 ### Docker (building)
 ```bash
 docker build -f docker/Dockerfile -t forge3d-pipeline:latest .
