@@ -92,6 +92,7 @@ RUN wget https://github.com/404-Repo/spz/releases/download/v.0.1.2/pyspz-wheels-
 
 # Install ben2 (System Python)
 RUN pip install -e "git+https://github.com/PramaLLC/BEN2.git#egg=ben2"
+RUN pip install -qr https://raw.githubusercontent.com/ZhengPeng7/BiRefNet/main/requirements.txt
 
 # --- 3. VLLM ENVIRONMENT (ISOLATED) ---
 # Tạo môi trường ảo tại /opt/vllm-env
